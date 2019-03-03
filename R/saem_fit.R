@@ -863,8 +863,8 @@ configsaem <- function(model, data, inits,
     .rx <- attr(model$saem_mod,"rx");
     .pars <- .rx$params
     .pars <- setNames(rep(1.1,length(.pars)),.pars);
-    if (ODEopt$method=="liblsoda") stop("liblsoda isn't supported with saem yet");
-    do.call(RxODE:::rxSolve.default,
+    ## if (ODEopt$method=="liblsoda") stop("liblsoda isn't supported with saem yet");
+    do.call(RxODE::rxSolve,
             c(list(object=.rx, params=.pars,
                    events=dat,.setupOnly=2L),ODEopt));
     dat <- as.data.frame(dat[,-6]);
