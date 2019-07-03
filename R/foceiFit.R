@@ -1768,37 +1768,38 @@ foceiFit.data.frame0 <- function(data,
     ## keep the covariate names the same as in the model
     .w <- which(!(names(.ret$dataSav) %in% .covNames))
     names(.ret$dataSav)[.w] <- tolower(names(.ret$dataSav[.w]))         #needed in ev
+    if (length(inits$OMGA) > 1){
+        .lh = .parseOM(inits$OMGA)
+        .nlh = sapply(.lh, length)
+        .osplt = rep(1:length(.lh), .nlh)
+        .lini = list(inits$THTA, unlist(.lh));
+        .nlini = sapply(.lini, length)
+        .nsplt = rep(1:length(.lini), .nlini)
 
-    .lh = .parseOM(inits$OMGA)
-    .nlh = sapply(.lh, length)
-    .osplt = rep(1:length(.lh), .nlh)
-    .lini = list(inits$THTA, unlist(.lh));
-    .nlini = sapply(.lini, length)
-    .nsplt = rep(1:length(.lini), .nlini)
-
-    .om0 = .genOM(.lh)
-    if (length(etaNames) == dim(.om0)[1]){
-        .ret$etaNames <- .ret$etaNames
-    } else {
-        .ret$etaNames <- sprintf("ETA[%d]", seq(1, dim(.om0)[1]))
+        .om0 = .genOM(.lh)
+        if (length(etaNames) == dim(.om0)[1]){
+            .ret$etaNames <- .ret$etaNames
+        } else {
+            .ret$etaNames <- sprintf("ETA[%d]", seq(1, dim(.om0)[1]))
+        }
+        .ret$rxInv <- RxODE::rxSymInvCholCreate(mat=.om0, diag.xform=control$diagXform);
+        .ret$xType <- .ret$rxInv$xType
+        .om0a <- .om0
+        .om0a <- .om0a / control$diagOmegaBoundLower;
+        .om0b <- .om0
+        .om0b <- .om0b * control$diagOmegaBoundUpper;
+        .om0a <- RxODE::rxSymInvCholCreate(mat=.om0a, diag.xform=control$diagXform)
+        .om0b <- RxODE::rxSymInvCholCreate(mat=.om0b, diag.xform=control$diagXform)
+        .omdf <- data.frame(a=.om0a$theta, m=.ret$rxInv$theta, b=.om0b$theta,diag=.om0a$theta.diag);
+        .omdf$lower <- with(.omdf, ifelse(a > b, b, a))
+        .omdf$lower <- with(.omdf, ifelse(lower == m, -Inf, lower));
+        .omdf$lower <- with(.omdf, ifelse(!diag, -Inf, lower));
+        .omdf$upper <- with(.omdf, ifelse(a < b, b, a))
+        .omdf$upper <- with(.omdf, ifelse(upper == m, Inf, upper));
+        .omdf$upper <- with(.omdf, ifelse(!diag, Inf, upper));
+        lower <- c(lower, .omdf$lower)
+        upper <- c(upper, .omdf$upper)
     }
-    .ret$rxInv <- RxODE::rxSymInvCholCreate(mat=.om0, diag.xform=control$diagXform);
-    .ret$xType <- .ret$rxInv$xType
-    .om0a <- .om0
-    .om0a <- .om0a / control$diagOmegaBoundLower;
-    .om0b <- .om0
-    .om0b <- .om0b * control$diagOmegaBoundUpper;
-    .om0a <- RxODE::rxSymInvCholCreate(mat=.om0a, diag.xform=control$diagXform)
-    .om0b <- RxODE::rxSymInvCholCreate(mat=.om0b, diag.xform=control$diagXform)
-    .omdf <- data.frame(a=.om0a$theta, m=.ret$rxInv$theta, b=.om0b$theta,diag=.om0a$theta.diag);
-    .omdf$lower <- with(.omdf, ifelse(a > b, b, a))
-    .omdf$lower <- with(.omdf, ifelse(lower == m, -Inf, lower));
-    .omdf$lower <- with(.omdf, ifelse(!diag, -Inf, lower));
-    .omdf$upper <- with(.omdf, ifelse(a < b, b, a))
-    .omdf$upper <- with(.omdf, ifelse(upper == m, Inf, upper));
-    .omdf$upper <- with(.omdf, ifelse(!diag, Inf, upper));
-    lower <- c(lower, .omdf$lower)
-    upper <- c(upper, .omdf$upper)
 
     .ret$lower <- lower;
     .ret$upper <- upper;
@@ -1872,8 +1873,12 @@ foceiFit.data.frame0 <- function(data,
     }
     if (exists("noLik", envir=.ret)){
         if (!.ret$noLik){
-            .ret$.params <- c(sprintf("THETA[%d]", seq_along(.ret$thetaIni)),
-                              sprintf("ETA[%d]", seq(1, dim(.om0)[1])));
+            if (length(inits$OMGA) > 1){
+                .ret$.params <- c(sprintf("THETA[%d]", seq_along(.ret$thetaIni)),
+                                  sprintf("ETA[%d]", seq(1, dim(.om0)[1])));
+            } else {
+                .ret$.params <- c(sprintf("THETA[%d]", seq_along(.ret$thetaIni)));
+            }
             .ret$.thetan <- length(.ret$thetaIni);
             .ret$nobs <- sum(data$EVID == 0)
         }
