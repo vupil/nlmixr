@@ -1,5 +1,14 @@
 as.focei.dynmodel <- function(object, uif, pt=proc.time(), ..., data, nobs2=0){
     .env <- new.env(parent=emptyenv());
+    .model <- RxODE::rxSymPySetupPred(uif$rxode.pred,
+                                      function(){return(nlmixr_pred)},
+                                      uif$theta.pars,
+                                      uif$error,
+                                      grad=FALSE,
+                                      pred.minus.dv=TRUE, sum.prod=FALSE, #control$sumProd,
+                                      theta.derivs=FALSE, optExpression=TRUE, #control$optExpression,
+                                      run.internal=TRUE, only.numeric=TRUE)
+    ## summary(.model$pred.only)
     ## Required elements are:
     ## $parFixedDf
     ## $parFixed
