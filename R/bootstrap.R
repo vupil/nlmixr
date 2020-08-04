@@ -48,7 +48,7 @@ addConfboundsToVar <-
 #' @export
 #'
 #' @examples
-#' \dontrun{
+# \dontrun{
 #' one.cmt <- function() {
 #'   ini({
 #'     ## You may label each parameter with a comment
@@ -71,9 +71,8 @@ addConfboundsToVar <-
 #'     linCmt() ~ add(add.sd)
 #'   })
 #' }
-#'
-#' fit <- nlmixr(one.cmt, theo_sd, "focei")
-#'
+#' fit <- nlmixr(one.cmt, theo_sd, "saem")
+#' #'
 #' bootstrapFit(fit)
 #' bootstrapFit(fit, nboot = 5, restart = TRUE) # overwrites any of the existing data or model files
 #' bootstrapFit(fit, nboot = 7) # resumes fitting using the stored data and model files
