@@ -43,6 +43,8 @@ addConfboundsToVar <-
 #' @param restart a boolean that indicates if a previous session has
 #'   to be restarted; default value is FALSE
 #'
+#' @param fitName Name of fit to be saved (by default the variable name supplied to fit)
+#'
 #'
 #' @author Vipul Mann, Matthew Fidler
 #' @export
@@ -85,7 +87,8 @@ bootstrapFit <- function(fit,
                          ci = 0.95,
                          pvalues = NULL,
                          restart = FALSE,
-                         plotHist = FALSE) {
+                         plotHist = FALSE,
+                         fitName=as.character(substitute(fit))) {
   stdErrType <- match.arg(stdErrType)
   if (missing(stdErrType)) {
     stdErrType <- "perc"
@@ -105,8 +108,6 @@ bootstrapFit <- function(fit,
     }
     performStrat <- TRUE
   }
-
-  fitName <- as.character(substitute(fit))
 
   if (is.null(fit$bootstrapMd5)) {
     bootstrapMd5 <- fit$md5
@@ -184,7 +185,9 @@ bootstrapFit <- function(fit,
   newParFixed["Bootstrap SE"] <- signif(seBoot, sigdig)
   newParFixed["Bootstrap %RSE"] <-
     signif(seBoot / estEst * 100, sigdig)
-  newParFixed["Bootstrap Back-transformed(95%CI)"] <-
+  .w <- which(regexpr("^Bootstrap +Back[-]transformed", names(newParFixed)) != -1)
+  if (length(.w) >= 1) newParFixed <- newParFixed[, -.w]
+  newParFixed[sprintf("Bootstrap Back-transformed(%s%%CI)", ci * 100)] <-
     backTransformed
 
   # compute bias
@@ -192,40 +195,10 @@ bootstrapFit <- function(fit,
   origParams = data.frame(list('Estimate'=fit$parFixedDf$Estimate, 'Back-transformed'=fit$parFixedDf$`Back-transformed`))
   bootstrapBiasParfixed = abs(origParams - bootParams)
   bootstrapBiasOmega = abs(fit$omega - bootSummary$omega$mean)
-  
-  # # compute covariance matrix
-  # covMatrixParfixed <- cov(bootParams)
-  # corMatrixParfixed <- cor(bootParams)
-  # 
-  # omgMat = bootSummary$omega$mean
-  # omgVec = omgMat[lower.tri(omgMat, TRUE)]
-  # omgVecRep = matrix(rep(omgVec, 10), nrow=10, byrow = TRUE) + rnorm(length(omgVec))
-  # 
-  # covMatrixOmega <- cov(omgVecRep)
-  # corMatrixOmega <- cor(omgVecRep)
-  # 
-  # idxName=1
-  # namesList=list()
-  # for (nam1 in colnames(omgMat)){
-  #   for (nam2 in colnames(omgMat)){
-  #     nam = paste0(nam1, '_', nam2)
-  #     namRev = paste0(nam2, '_', nam1)
-  #     if (!(nam %in% namesList | namRev %in% namesList) ){
-  #       namesList[idxName]= nam
-  #       idxName = idxName+1
-  #     }
-  #   }
-  # }
-  # 
-  # colnames(covMatrixOmega) = namesList
-  # rownames(covMatrixOmega) = namesList
-  
-  # assign("deltOBJF", deltOBJF, envir = fit$env)
+
   assign("bootBiasParfixed", bootstrapBiasParfixed, envir = fit$env)
   assign("bootBiasOmega", bootstrapBiasOmega, envir = fit$env)
-  
-  # assign("bootCovMatrixParfixed", covMatrixParfixed, envir = fit$env)
-  # assign("bootCorMatrixParfixed", corMatrixParfixed, envir = fit$env)
+
   assign("bootCovMatrix", bootSummary$omega$covMatrix, envir = fit$env)
   assign("bootCorMatrix", bootSummary$omega$corMatrix, envir = fit$env)
   assign("parFixedDf", newParFixedDf, envir = fit$env)
@@ -245,36 +218,32 @@ bootstrapFit <- function(fit,
     }
 
     # already exists
-    output_dir <- paste0("nlmixrBootstrapCache_", as.character(substitute(fit)), "_", fit$bootstrapMd5)
+    output_dir <- paste0("nlmixrBootstrapCache_", fitName, "_", fit$bootstrapMd5)
 
     deltOBJFloaded = NULL
     deltOBJF = NULL
-    ## if (!restart){
-    ##   deltOBJFloaded = readRDS(paste0("./", output_dir,"/",'deltOBJF',".rds"))
-    ##   deltOBJF = c(deltOBJFloaded, deltOBJF)
-    ## }
-    ## else{
     RxODE::rxProgress(length(fitList))
     cli::cli_h1("Loading/Calculating \u0394 Objective function")
+    setOfv(fit, "focei") # Make sure we are using focei objective function
     deltOBJF <- lapply(seq_along(fitList), function(i) {
-      x <- fitList[[i]]
+      x <- readRDS(file.path(output_dir, paste0("fitEnsemble_", i, ".rds")))
       .path <- file.path(output_dir, paste0("posthoc_", i, ".rds"))
       if (file.exists(.path)){
         xPosthoc <- readRDS(.path)
         RxODE::rxTick()
       } else {
-        RxODE::rxProgressAbort("Starting to posthoc estimates")
+        RxODE::rxProgressStop()
+        ## RxODE::rxProgressAbort("Starting to posthoc estimates")
         ## Don't calculate the tables
         .msg <- paste0(gettext("Running bootstrap estimates on original data for model index: "), i)
         cli::cli_h1(.msg)
-        xPosthoc = suppressWarnings(nlmixr(x, data=origData, est='posthoc',
-                                           control=list(calcTables=FALSE)))
+        xPosthoc = nlmixr(x, data=origData, est='posthoc',
+                          control=list(calcTables=FALSE, print=1))
         saveRDS(xPosthoc, .path)
       }
       xPosthoc$objf - fit$objf
     })
     RxODE::rxProgressStop()
-    deltOBJF = c(deltOBJFloaded, deltOBJF)
 
     .deltaO <- sort(abs(unlist(deltOBJF)))
 
@@ -311,8 +280,12 @@ bootstrapFit <- function(fit,
     assign(".bootPlotData", .dataList, envir=fit$env)
 
   }
-
-  fit
+  ## Update covariance estimate
+  .nm <- names(fit$theta)[!fit$skipCov[seq_along(fit$theta)]]
+  .cov <- fit$bootSummary$omega$covMatrixCombined[.nm, .nm]
+  .setCov(fit, covMethod=.cov)
+  assign("covMethod", paste0("boot", fit$bootSummary$nboot), fit$env)
+  invisible(fit)
 }
 
 
@@ -539,8 +512,7 @@ modelBootstrap <- function(fit,
   }
 
   fnameBootDataPattern <-
-    paste0(as.character(substitute(boot_data)),
-      "_", "[0-9]+", ".rds",
+    paste0("boot_data_", "[0-9]+", ".rds",
       sep = ""
     )
   fileExists <-
@@ -593,9 +565,7 @@ modelBootstrap <- function(fit,
         file = paste0(
           "./",
           output_dir,
-          "/",
-          as.character(substitute(boot_data)),
-          "_",
+          "/boot_data_",
           mod_idx,
           ".rds"
         )
@@ -615,7 +585,7 @@ modelBootstrap <- function(fit,
   # Fitting models to bootData now
   .env <- environment()
   fnameModelsEnsemblePattern <-
-    paste0(as.character(substitute(modelsEnsemble)), "_", "[0-9]+",
+    paste0("modelsEnsemble_", "[0-9]+",
       ".rds",
       sep = ""
     )
@@ -623,7 +593,7 @@ modelBootstrap <- function(fit,
     list.files(paste0("./", output_dir), pattern = fnameModelsEnsemblePattern)
 
   fnameFitEnsemblePattern <-
-    paste0(as.character(substitute(fitEnsemble)), "_", "[0-9]+",
+    paste0("fitEnsemble_", "[0-9]+",
            ".rds",
            sep = ""
     )
@@ -737,9 +707,7 @@ modelBootstrap <- function(fit,
         file = paste0(
           "./",
           output_dir,
-          "/",
-          as.character(substitute(modelsEnsemble)),
-          "_",
+          "/modelsEnsemble_",
           .env$mod_idx,
           ".rds"
         )
@@ -750,9 +718,7 @@ modelBootstrap <- function(fit,
         file = paste0(
           "./",
           output_dir,
-          "/",
-          as.character(substitute(fitEnsemble)),
-          "_",
+          "/fitEnsemble_",
           .env$mod_idx,
           ".rds"
         )
@@ -905,7 +871,7 @@ getBootstrapSummary <-
       #   mn <- mean(varVec)
       #   median <- median(varVec)
       #   sd <- sd(varVec)
-      # 
+      #
       #   c(
       #     mean = mn,
       #     median = median,
@@ -930,57 +896,64 @@ getBootstrapSummary <-
           confLower <- mn - qnorm(quantLevels[[2]]) * sd
           confUpper <- mn + qnorm(quantLevels[[3]]) * sd
         }
-        
+
         # computing the covariance and correlation matrices
         # =======================================================
         parFixedOmegaBootVec = list()
-        
+
         parFixedlist = extractVars(fitList, id='parFixedDf')
         parFixedlistVec = lapply(parFixedlist, function(x){
           x$Estimate
         })
         parFixedlistVec = do.call('rbind', parFixedlistVec)
-        
+
         omgVecBoot = list()
         omegaIdx = seq(length(omegaMatlist))
-        
+
         omgVecBoot = lapply(omegaIdx, function(idx){
           omgMat = omegaMatlist[[idx]]
           omgVec = omgMat[lower.tri(omgMat, TRUE)]
           omgVecBoot[[idx]] = omgVec
         })
         omgVecBoot = do.call('rbind', omgVecBoot)
-        
+
         idxName=1
         namesList=list()
         for (nam1 in colnames(omegaMatlist[[1]])){
           for (nam2 in colnames(omegaMatlist[[1]])){
-            nam = paste0(nam1, '_', nam2)
-            namRev = paste0(nam2, '_', nam1)
-            if (!(nam %in% namesList | namRev %in% namesList) ){
-              namesList[idxName]= nam
-              idxName = idxName+1
+            if (nam1 == nam2){
+              if (!(nam1 %in% namesList) ){
+                namesList[idxName]= nam1
+                idxName = idxName+1
+              }
+            } else {
+              nam = paste0("(", nam1, ",", nam2, ")")
+              namRev = paste0("(", nam2, ",", nam1, ")")
+              if (!(nam %in% namesList | namRev %in% namesList) ){
+                namesList[idxName]= nam
+                idxName = idxName+1
+              }
             }
           }
         }
-        
         colnames(omgVecBoot) = namesList
-        
-        print(omgVecBoot)
-        print(parFixedlistVec)
+
+        .w <- which(sapply(namesList, function(x){!all(omgVecBoot[, x] == 0)}))
+        omgVecBoot <- omgVecBoot[, .w]
+
 
         parFixedOmegaCombined = cbind(parFixedlistVec, omgVecBoot)
-        
-        covMatrix <- cov(parFixedOmegaCombined)
-        corMatrix <- cor(parFixedOmegaCombined)
 
+        covMatrix <- cov(parFixedOmegaCombined)
+        corMatrix <- cov2cor(covMatrix)
+        diag(corMatrix) <- sqrt(diag(covMatrix))
         lst <- list(
           mean = mn,
           median = median,
           stdDev = sd,
           confLower = confLower,
           confUpper = confUpper,
-          covMatrixCombined = covMatrix, 
+          covMatrixCombined = covMatrix,
           corMatrixCombined = corMatrix
         )
       }
@@ -1058,16 +1031,6 @@ print.nlmixrBoostrapSummary <- function(x, ..., sigdig = NULL) {
       "Summary of the bootstrap models (nboot: {nboot})"
     )
   )
-  cli::cli_ol()
-  cli::cli_li(cli::col_blue(
-    cli::style_bold("Objective function"),
-    # cli::col_yellow(" (summary$objf)")
-  ))
-  # print(objf)
-
-  # cli::cli_li(cli::col_blue(cli::style_bold("AIC"), cli::col_yellow(" (summary$aic)")))
-  # print(aic)
-
   cli::cli_li(cli::col_magenta(
     cli::style_bold(
       "Omega matrices: mean, median, standard deviation, and confidence bousnds"

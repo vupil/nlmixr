@@ -708,13 +708,7 @@ nlmixr_fit0 <- function(uif, data, est = NULL, control = list(), ...,
       .cls[1] <- "nlmixrPosthoc"
       class(fit) <- .cls
     }
-    assign("uif", uif, fit$env)
-    ## assign("start.time", start.time, env)
-    ## assign("est", est, env)
-    ## assign("stop.time", Sys.time(), env)
-    ## assign("start.time", start.time, env)
-    ## assign("est", est, env)
-    ## assign("stop.time", Sys.time(), env)
+    assign("uif", .syncUif(fit, fit$popDf, fit$omega), fit$env)
     fit <- fix.dat(fit)
     assign("origControl", control, fit$env)
     assign("modelId", .modelId, fit$env)
@@ -997,91 +991,4 @@ saemControl <- function(seed = 99,
   .ret[["calcTables"]] <- calcTables
   class(.ret) <- "saemControl"
   .ret
-}
-
-##' Add CWRES
-##'
-##' This returns a new fit object with CWRES attached
-##'
-##' @param fit nlmixr fit without WRES/CWRES
-##' @param updateObject Boolean indicating if the original fit object
-##'     should be updated. By default this is true.
-##' @param envir Environment that should be checked for object to
-##'     update.  By default this is the global environment.
-##' @return fit with CWRES
-##' @author Matthew L. Fidler
-##' @export
-addCwres <- function(fit, updateObject = TRUE, envir = globalenv()) {
-  RxODE::.setWarnIdSort(FALSE)
-  on.exit(RxODE::.setWarnIdSort(TRUE))
-  .pt <- proc.time()
-  .oTime <- fit$env$time
-  .objName <- substitute(fit)
-  if (any(names(fit) == "CWRES")) {
-    ## warning("Already contains CWRES")
-    return(fit)
-  }
-  .uif <- fit$uif
-  .saem <- fit$saem
-  .od <- fit$origData
-  if (!is.null(.saem)) {
-    assign("saem", NULL, fit$env)
-    on.exit({
-      assign("saem", .saem, fit$env)
-    })
-    .newFit <- as.focei.saemFit(.saem, .uif,
-      data = .nmGetData(fit), calcResid = TRUE, obf = NA,
-      calcCov = fit$cov, covMethod = fit$covMethod,
-      calcCovTime = as.vector(fit$time[["covariance"]])
-    )
-    .ob1 <- .newFit$objDf
-    .ob2 <- fit$objDf
-    if (any(names(.ob2) == "Condition Number")) {
-      .cn <- unique(.ob2[["Condition Number"]])
-      .cn <- .cn[!is.na(.cn)]
-      if (length(.cn) == 1) {
-        .ob1[, "Condition Number"] <- .cn
-      } else {
-        .ob1[, "Condition Number"] <- NA
-      }
-    }
-    .ob1 <- rbind(.ob1, .ob2)
-    .ob1 <- .ob1[order(row.names(.ob1)), ]
-    .ob1 <- .ob1[!is.na(.ob1$OBJF), ]
-    assign("objDf", .ob1, envir = .newFit$env)
-    assign("saem", .saem, fit$env)
-    assign("adjObj", fit$env$adjObj, .newFit$env)
-    .df <- .newFit[, c("WRES", "CRES", "CWRES", "CPRED")]
-    ## Add CWRES timing to fit.
-    .new <- cbind(fit, .df)
-  }
-  .nlme <- fit$nlme
-  if (!is.null(.nlme)) {
-    .newFit <- as.focei(.nlme, .uif, data = .nmGetData(fit), calcResid = TRUE)
-    assign("adjObj", fit$env$adjObj, .newFit$env)
-    .df <- .newFit[, c("WRES", "CRES", "CWRES", "CPRED")]
-    .new <- cbind(fit, .df)
-  }
-  class(.new) <- class(.newFit)
-  if (!is.null(.saem)) {
-    setOfv(.new, "FOCEi")
-  }
-  if (updateObject) {
-    .parent <- envir
-    .bound <- do.call("c", lapply(ls(.parent, all.names = TRUE), function(.cur) {
-      if (.cur == .objName && identical(.parent[[.cur]]$env, fit$env)) {
-        return(.cur)
-      }
-      return(NULL)
-    }))
-    if (length(.bound) == 1) {
-      if (exists(.bound, envir = .parent)) {
-        assign(.bound, .new, envir = .parent)
-      }
-    }
-  }
-  .env <- .new$env
-  .env$time <- .data.frame(.oTime, cwres = (proc.time() - .pt)["elapsed"], check.names = FALSE)
-  assign("origData", .od, .env)
-  return(.new)
 }
