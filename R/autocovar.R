@@ -1055,29 +1055,45 @@ covarSearchAuto <-
     }
   }
 
-crossValidationLasso = function(fit, stepSize=0.05, lowBound=0, upBound=1.0){
-  objfVal = Inf
-  tval = loBound
-  while(tval<=upBound){
+crossValidationLasso = function(fit, dataCombined, newModel, numDatasets=5, stepSize=0.05, lowBound=0, upBound=1.0){
+  numData = 1
+  tValList = list()
+  while(numData<numDatasets){
     
-    .ini = as.data.frame(fit$uif$ini)
-    .ini[.ini[name=='lasso_t', ], 'est'] = tVal  # should be fixed, not estimated
-    class(.ini) <- c("nlmixrBounds", "data.frame")
-    fit$uif$ini = .ini
+    crossValDataset = sampling(dataCombined, nsamp=nrow(getData(fit)))
     
-    # set fit$tval = tval
-    # run nlmixr(with fit)
-    if (fit$objf>objfVal){
-      break
+    objfVal = Inf
+    tVal = lowBound
+    
+    while(tVal<=upBound){
+      print(tVal)
+      .ini = as.data.frame(newModel$ini)
+      .ini[.ini['name']=='lasso_t', 'est'] = tVal
+      .ini[.ini['name']=='lasso_t', 'fix'] = TRUE
+      
+      class(.ini) <- c("nlmixrBounds", "data.frame")
+      newModel$ini = .ini
+      
+      # fitTval = suppressWarnings(nlmixr(newModel, data=crossValDataset, est=getFitMethod(fit)))
+      fitTval = suppressWarnings(nlmixr(newModel, data=crossValDataset, est='focei'))
+      
+      if (fitTval$objf>objfVal){
+        tVal = tVal - stepSize
+        break
+      }
+      tVal = tVal + stepSize
+      objfVal = fitTval$objf
     }
-    tVal = tVal + stepSize
+    
+    tValList[[numData]] = tVal
+    numData = numData+1
   }
-  
-  list(tVal, fit)
+
+  mean(tValList)
 }
 
 
-covsearchLasso = function(fit, covarsVec, varsVec, catCovariates=NULL, covInformation=NULL){
+covsearchLasso = function(fit, covarsVec, varsVec, catCovariates=NULL, covInformation=NULL, hsCovariates=NULL){
   possiblePerms <- expand.grid(varsVec, covarsVec)
   possiblePerms <-
     list(as.character(possiblePerms[[1]]),
@@ -1097,6 +1113,14 @@ covsearchLasso = function(fit, covarsVec, varsVec, catCovariates=NULL, covInform
     else {
       covInformation[[listVarName]]$categorical <- FALSE
     }
+    
+    if (item[[2]] %in% hsCovariates) {
+      covInformation[[listVarName]]$isHS <- TRUE
+    }
+    else {
+      covInformation[[listVarName]]$isHS <- FALSE
+    }
+    
     
     if ((listVarName %in% names(covInformation)) |
         (listVarName2 %in% names(covInformation))) {
@@ -1119,41 +1143,42 @@ covsearchLasso = function(fit, covarsVec, varsVec, catCovariates=NULL, covInform
   modAndLparams=lapply(covInfo, function(x){
     if (x$categorical){
       res= makeDummies(data, x$covariate, x$varName)
-      
+      data=res[[1]]
       covariateNames = res[[4]]
       covModExpr = res[[2]]
       covNames = res[[3]]
     }
     else if (x$isHS){
       res = makeHockeyStick(data, x$covariate, x$varName)
+      data=res[[1]]
       covariateNames = res[[4]]
       covModExpr = res[[2]]
       covNames = res[[3]]
     }
     else{
-      covNames= paste0('cov_', x$covariate,'_', x$varName)
-      covariateNames = paste0('centered_', x$varName)
-      covModExpr = paste0(covNames, '*', covariateNames)
+      res = performNorm(data, x$covariate, x$varName, normOp = `/`, normValVec = mean(unlist(data[x$covariate])))
+      covNames = res[[3]]
+      covModExpr = res[[2]]
+      covariateNames = paste0('centered_', x$covariate)
+      data = res[[1]]
+      # covNames= paste0('cov_', x$covariate,'_', x$varName)
+      # covModExpr = paste0(covNames, '*', covariateNames)
     }
     
     lassoParams = list(
       var = x$varName,
       combinedTheta = paste0(covariateNames, '*', covNames, '*', 'lasso_factor'),
-      lassoVarName = paste0('lasso_', covNames)
-    )
+      lassoVarName = paste0('lasso_', covNames))
     
-    list(mod = paste(covModExpr, collapse = '+'), lparams = lassoParams)
-    
-    # res = addCovVar(fit, varName = x$varName, covariate = x$covariate, categorical = x$categorical)
-    # theta = res[[3]]
-    # varCovar = paste0(x$varName, x$covariate)
-    # lassoParams = list(var=x$varName, combinedTheta=paste0(x$covariate, '*',theta, '*','lasso_factor'), lassoVarName = paste0('lasso_',x$varName,'_', x$covariate))
-    # 
-    # updatedMods= res[[1]]
-    # 
-    # list(mod=updatedMods, lparams=lassoParams)
+    list(mod = paste(covModExpr, collapse = '+'), lparams = lassoParams, data=data, covNames=covNames)
   }
   )
+  
+  
+  dataCombined = do.call(cbind, 
+                         unname(lapply(modAndLparams, function(x){x$data}))
+                         )
+  dataCombined = dataCombined[,unique(colnames(dataCombined))]
   
   fstring1 = paste0('lasso_factor=exp(1-lasso_ratio)')  # lasso factor equation
   fstring2 = paste0('lasso_ratio = lasso_abs/lasso_t')  # lasso ratio equation
@@ -1181,84 +1206,68 @@ covsearchLasso = function(fit, covarsVec, varsVec, catCovariates=NULL, covInform
                       
                       }), collapse='\n')
   
-  fstringsAll = paste0(fstring1, '\n',fstring2, '\n',fstring3, '\n',fstring4, '\n',fstring5, collapse = '\n')
+  fstringsAll = paste0('\n',fstring3, '\n',fstring2, '\n',fstring1, '\n',fstring4, '\n',fstring5, collapse = '\n')
 
-  .newModel <- eval(parse(text = paste0("function(){", fstringsAll, "\n", fit$fun.txt, "}"), keep.source = TRUE)) 
-  # .newModel <- eval(parse(text=paste0(deparse(.newModel), collapse = '\n'), keep.source = TRUE))
+  fstringOrig = strsplit(fit$fun.txt, split = '\n')[[1]]
+  
+  tempIdx = which(regexpr("~", fstringOrig)!= -1 )[1]
+  
+  fstringNew = paste(c(fstringOrig[seq(1,tempIdx-1)], fstringsAll, fstringOrig[seq(tempIdx,length(fstringOrig))]), collapse = '\n')
+  
+  
+  # .newModel <- eval(parse(text = paste0("function(){", fstringsAll, "\n", fit$fun.txt, "}"), keep.source = TRUE)) 
+  .newModel <- eval(parse(text = paste0("function(){", '\n', fstringNew, '\n', "}"), keep.source = TRUE)) 
   
   .ini = as.data.frame(fit$uif$ini)
   
-  namesToAdd = c('lasso_ratio', 'lasso_abs', unlist(unname(lapply(modAndLparams, function(x){c(x$lparams$lassoVarName)}))))
+  namesToAdd = c('lasso_ratio', 'lasso_abs', 'lasso_t', unlist(unname(lapply(modAndLparams, function(x){c(x$lparams$lassoVarName)}))), unlist(unname(lapply(modAndLparams, function(x){c(x$covNames)}))))
   
+  df1 = .ini[!is.na(.ini['ntheta']) & .ini['name']!='add.sd',]
+  df2 = .ini[is.na(.ini['ntheta']),]
+  df3 = .ini[.ini['name']=='add.sd',]
+  
+  idxmax = max(df1[,'ntheta'], na.rm = T)
+  idxcurr=1
   for (x in namesToAdd){
-    nwrow = .ini[1,]
+    nwrow = df1[1,]
     nwrow$name = x
     nwrow$est = 0.0
+    nwrow$ntheta = idxmax + idxcurr
     nwrow$label = NA_character_
     
-    .ini = rbind(.ini, nwrow)
+    df1 = rbind(df1, nwrow)
+    idxcurr = idxcurr+1
   }
-
   
-  # addnlRow3 = .ini[1,] 
-  # addnlRow3$name = 'lasso_ratio'
-  # 
-  # addnlRow4 = .ini[1,] 
-  # addnlRow4$name = 'lasso_factor'
-  # 
-  # addnlRow5 = .ini[1,] 
-  # addnlRow5$name = 'lasso_abs'
-  # 
-  # addnlRow2 = .ini[1,] # extract the first row
-  # addnlRow2$name = lp$lassoVarName
-  # 
-  # 
-  # 
-  # 
-  # .ini = rbind(.ini, addnlRow2, addnlRow3, addnlRow4, addnlRow5)
+  df3['ntheta'] = max(df1[,'ntheta']) + 1
+
+  .ini= do.call(rbind, list(df1, df2, df3))
+  rownames(.ini) = 1:nrow(.ini)
+  
   class(.ini) <- c("nlmixrBounds", "data.frame")
   newModel <- .finalizeUiModel(       nlmixrUIModel(.newModel, .ini, NULL),       as.list(fit$uif$meta)     )
-  
-  
-  
-  
-  lapply(modAndLparams, function(x){
-    upmod = x$mod
-    lp = x$lparams
-    
-    newVar = paste0('lasso_', lp$var)
-    
-    funStringAdditional1 = paste0(newVar, '=', lp$var, '*', '(1-', lp$lassoVarName, ')')
-    funStringAdditional2 = paste0(lp$lassoVarName, '=', lp$combinedTheta)
-    funStringAdditional3 = paste0('lasso_factor=exp(1-lasso_ratio)')
-    funStringAdditional4 = paste0('lasso_ratio = lasso_abs/lasso_t')
-    funStringAdditional5 = paste0('lasso_abs = abs(', newVar, ')')
-    
-    funStringAdditional = paste0(funStringAdditional1, '\n', funStringAdditional2, '\n',funStringAdditional3, '\n', funStringAdditional4, '\n', funStringAdditional5)
-    
-    .newModel <- eval(parse(text = paste0("function(){", funStringAdditional, "\n", upmod$fun.txt, "}"), keep.source = TRUE)) 
 
-    .ini = as.data.frame(upmod$ini)
-    
-    addnlRow2 = .ini[1,] # extract the first row
-    addnlRow2$name = lp$lassoVarName
-    
-    addnlRow3 = .ini[1,] # extract the first row
-    addnlRow3$name = 'lasso_ratio'
-    
-    addnlRow4 = .ini[1,] # extract the first row
-    addnlRow4$name = 'lasso_factor'
-    
-    addnlRow5 = .ini[1,] # extract the first row
-    addnlRow5$name = 'lasso_abs'
-
-    
-    .ini = rbind(.ini, addnlRow2, addnlRow3, addnlRow4, addnlRow5)
-    class(.ini) <- c("nlmixrBounds", "data.frame")
-    newModel <- .finalizeUiModel(       nlmixrUIModel(.newModel, .ini, NULL),       as.list(fit$uif$meta)     )
-
-  })
+ 
+  # Perform cross-validation now using the updated model
+  tvalCrossVal = crossValidationLasso(fit, dataCombined, newModel, numDatasets = 5, stepSize = 0.05, lowBound = 0, upBound = 1.0)
   
+  
+  
+  
+  fstringNew = 'ka1 <- exp(tka + eta.ka)
+  cl1 <- exp(tcl + eta.cl)
+  v1 <- exp(tv + eta.v)
+  
+  lasso_abs=abs(lasso_cov_WT_ka)+abs(lasso_cov_WT_cl)
+  lasso_ratio = lasso_abs/lasso_t
+  lasso_factor=exp(1-lasso_ratio)
+  lasso_cov_WT_ka = centered_WT*cov_WT_ka*lasso_factor
+  lasso_cov_WT_cl = centered_WT*cov_WT_cl*lasso_factor
+  ka=ka1*(1- lasso_cov_WT_ka )
+  cl=cl1*(1- lasso_cov_WT_cl )
+  v=v1
+  linCmt() ~ add(add.sd)
+  '
 }
 
 
