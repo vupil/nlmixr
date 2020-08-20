@@ -50,7 +50,7 @@ addConfboundsToVar <-
 #' @export
 #'
 #' @examples
-# \dontrun{
+#' \dontrun{
 #' one.cmt <- function() {
 #'   ini({
 #'     ## You may label each parameter with a comment
@@ -71,7 +71,7 @@ addConfboundsToVar <-
 #'     cl <- exp(tcl + eta.cl)
 #'     v <- exp(tv + eta.v)
 #'     linCmt() ~ add(add.sd)
-#'   })
+#'  })
 #' }
 #' fit <- nlmixr(one.cmt, theo_sd, "saem")
 #' #'
