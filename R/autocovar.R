@@ -1094,7 +1094,7 @@ forwardSearch <- function(covInfo, fit, pVal = 0.05, outputDir, restart = FALSE)
         pchisqr <- 1
       }
 
-      l1 <- list(step = stepIdx, covar = nam_covar, var = nam_var, objf = x$objf, deltObjf = dObjf, AIC = x$AIC, BIC = x$BIC, numParams = length(x$uif$ini$est), qchisqr = qchisq(1 - pVal, dof), pchisqr = pchisqr, included = "", searchType = "forward")
+      l1 <- list(step = stepIdx, covar = nam_covar, var = nam_var, objf = x$objf, deltObjf = dObjf, AIC = x$AIC, BIC = x$BIC, numParams = length(x$uif$ini$est), qchisqr = qchisq(1 - pVal, dof), pchisqr = pchisqr, significant = "", searchType = "forward")
       l2 <- list(covNames = covNames, covarEffect = x$parFixedDf[covNames, "Estimate"])
 
       c(l1, l2)
@@ -1109,8 +1109,8 @@ forwardSearch <- function(covInfo, fit, pVal = 0.05, outputDir, restart = FALSE)
     if (bestRow$pchisqr <= pVal) { # should be based on p-value
 
       # objf function value improved
-      resTable[which.min(resTable$pchisqr), "included"] <- "yes"
-      bestRow[, "included"] <- "yes"
+      resTable[which.min(resTable$pchisqr), "significant"] <- "yes"
+      bestRow[, "significant"] <- "yes"
 
       cli::cli_h1("best model at step {stepIdx}: ")
       print(bestRow)
@@ -1284,7 +1284,7 @@ backwardSearch <- function(covInfo, fitorig, fitupdated, pVal = 0.01, reFitCovar
         pchisqr <- 1
       }
 
-      l1 <- list(step = stepIdx, covar = nam_covar, var = nam_var, objf = x$objf, deltObjf = dObjf, AIC = x$AIC, BIC = x$BIC, numParams = length(x$uif$ini$est), qchisqr = qchisq(1 - pVal, dof), pchisqr = pchisqr, included = "", searchType = "backward")
+      l1 <- list(step = stepIdx, covar = nam_covar, var = nam_var, objf = x$objf, deltObjf = dObjf, AIC = x$AIC, BIC = x$BIC, numParams = length(x$uif$ini$est), qchisqr = qchisq(1 - pVal, dof), pchisqr = pchisqr, significant = "", searchType = "backward")
       l2 <- list(covNames = covNames, covarEffect = fit$parFixedDf[covNames, "Estimate"])
 
       c(l1, l2)
@@ -1301,8 +1301,8 @@ backwardSearch <- function(covInfo, fitorig, fitupdated, pVal = 0.01, reFitCovar
     if (bestRow$pchisqr <= pVal) {
       # objf function value increased after removal of covariate: retain the best covariate at this stage, test for the rest
 
-      resTable[which.min(resTable$pchisqr), "included"] <- "yes"
-      bestRow[, "included"] <- "yes"
+      resTable[which.min(resTable$pchisqr), "significant"] <- "yes"
+      bestRow[, "significant"] <- "yes"
 
 
       cli::cli_h1("best model at step {stepIdx}: ")
@@ -1339,7 +1339,7 @@ backwardSearch <- function(covInfo, fitorig, fitupdated, pVal = 0.01, reFitCovar
 # fitDapto <- readRDS("daptomycin.Rds")
 # covarSearchAuto(fitDapto, c("v1"), c("SEX"), catCovariates = "SEX", restart = T, pVal = list(fwd = 1, bck = 1))
 
-# covarSearchAuto(fitDapto, c('v1', 'v2'), c('WT', 'SEX'), catCovariates = 'SEX', restart = FALSE, pVal=list(fwd=1, bck=1))
+covarSearchAuto(fitDapto, c('cl', 'q', 'v1', 'v2'), c('SEX', 'WT'), catCovariates = 'SEX', restart = TRUE, pVal=list(fwd=0.2, bck=0.3))
 
 
 # fun.txt: "    cl = exp(tcl+eta.cl)\n    q = exp(tq+eta.q)\n    v1 = exp(tv1+eta.v1)\n    v2=exp(tv2+eta.v2)\n    cp = linCmt()\n    cp ~ add(add.err)"
