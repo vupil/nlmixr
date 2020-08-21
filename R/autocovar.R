@@ -1395,7 +1395,7 @@ forwardSearch <-
             numParams = length(x$uif$ini$est),
             qchisqr = qchisq(1 - pVal, dof),
             pchisqr = pchisqr,
-            included = "",
+            significant = "",
             searchType = "forward"
           )
         l2 <-
@@ -1415,8 +1415,8 @@ forwardSearch <-
         # should be based on p-value
         
         # objf function value improved
-        resTable[which.min(resTable$pchisqr), "included"] <- "yes"
-        bestRow[, "included"] <- "yes"
+        resTable[which.min(resTable$pchisqr), "significant"] <- "yes"
+        bestRow[, "significant"] <- "yes"
         
         cli::cli_h1("best model at step {stepIdx}: ")
         print(bestRow)
@@ -1676,7 +1676,7 @@ backwardSearch <-
             numParams = length(x$uif$ini$est),
             qchisqr = qchisq(1 - pVal, dof),
             pchisqr = pchisqr,
-            included = "",
+            significant = "",
             searchType = "backward"
           )
         l2 <-
@@ -1697,8 +1697,8 @@ backwardSearch <-
       if (bestRow$pchisqr <= pVal) {
         # objf function value increased after removal of covariate: retain the best covariate at this stage, test for the rest
         
-        resTable[which.min(resTable$pchisqr), "included"] <- "yes"
-        bestRow[, "included"] <- "yes"
+        resTable[which.min(resTable$pchisqr), "significant"] <- "yes"
+        bestRow[, "significant"] <- "yes"
         
         
         cli::cli_h1("best model at step {stepIdx}: ")
@@ -1837,14 +1837,39 @@ backwardSearch <-
 
 
 
-
+one.cmt <- function() {
+  ini({
+    ## You may label each parameter with a comment
+    tka <- 0.45 # Log Ka
+    tcl <- 1 # Log Cl
+    ## This works with interactive models
+    ## You may also label the preceding line with label("label text")
+    tv <- 3.45
+    label("log V")
+    ## the label("Label name") works with all models
+    eta.ka ~ 0.6
+    eta.cl ~ 0.3
+    eta.v ~ 0.1
+    add.sd <- 0.7
+  })
+  model({
+    ka <- exp(tka + eta.ka)
+    cl <- exp(tcl + eta.cl)
+    v <- exp(tv + eta.v)
+    linCmt() ~ add(add.sd)
+ })
+}
+fit <- nlmixr(one.cmt, theo_sd, "saem")
 # covInformation = list(kaWT=list(),
 #                       clID = list(),
 #                       )
 # covarSearchAuto(fit, varsVec = c('ka', 'cl', 'v'), covarsVec = c('WT', 'ID'), pVal = list(fwd=1, bck=1))
 
+
+# covarSearchAuto(fit, varsVec = c('ka', 'cl'), covarsVec = c('WT'), pVal = list(fwd=1, bck=1))
+
 # fitDapto <- readRDS("daptomycin.Rds")
-# covarSearchAuto(fitDapto, c('cl','q' ,"v1", 'v2'), c("SEX", 'WT'), catCovariates = c("SEX"), restart = T, pVal = list(fwd = 0.2, bck = 0.3))
+# x2=covarSearchAuto(fitDapto, c('cl','q' ,"v1", 'v2'), c("SEX", 'WT'), catCovariates = c("SEX"), restart = T, pVal = list(fwd = 0.2, bck = 0.3))
 
 # covarSearchAuto(fitDapto, c('v1', 'v2'), c('WT', 'SEX'), catCovariates = 'SEX', restart = FALSE, pVal=list(fwd=1, bck=1))
 
